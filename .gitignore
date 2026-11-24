@@ -1,3 +1,4 @@
 patched/
+orig_settings.env
 *.log
 *.zip

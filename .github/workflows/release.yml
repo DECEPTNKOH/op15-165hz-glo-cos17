@@ -17,20 +17,44 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Read module metadata
+      - name: Read and validate module metadata
         id: meta
         run: |
-          VERSION="${GITHUB_REF_NAME}"
+          TAG="${GITHUB_REF_NAME}"
+          PROP_VER=$(grep '^version=' module.prop | cut -d'=' -f2 | tr -d '\r')
           VERSION_CODE=$(grep '^versionCode=' module.prop | cut -d'=' -f2 | tr -d '\r')
-          ZIP_NAME="OP15_165Hz_GLO_COS17_${VERSION}.zip"
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          if [ "$TAG" != "$PROP_VER" ]; then
+            echo "ERROR: Tag ($TAG) does not match module.prop version ($PROP_VER)"
+            exit 1
+          fi
+          ZIP_NAME="OP15_165Hz_GLO_COS17_${TAG}.zip"
+          echo "version=${TAG}" >> "$GITHUB_OUTPUT"
           echo "version_code=${VERSION_CODE}" >> "$GITHUB_OUTPUT"
           echo "zip_name=${ZIP_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Extract release notes for current version
+        run: |
+          awk -v ver="## ${{ steps.meta.outputs.version }}" '
+            $0 == ver { flag=1; next }
+            /^## / && flag { exit }
+            flag { print }
+          ' CHANGELOG.md > release_notes.md
+          if [ ! -s release_notes.md ]; then
+            echo "Release ${{ steps.meta.outputs.version }}" > release_notes.md
+          fi
 
       - name: Build module ZIP
         run: |
           zip -r9 "${{ steps.meta.outputs.zip_name }}" . \
-            -x ".git/*" ".github/*" "docs/*" ".gitignore" "README.md" "CHANGELOG.md" "update.json" "patched/*" "*.log" "*.zip"
+            -x ".git/*" ".github/*" "docs/*" ".gitignore" "README.md" "CHANGELOG.md" "update.json" "release_notes.md" "patched/*" "orig_settings.env" "*.log" "*.zip"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.meta.outputs.version }}" "${{ steps.meta.outputs.zip_name }}" \
+            --title "${{ steps.meta.outputs.version }} — OnePlus 15 GLO 165Hz Unlock" \
+            --notes-file release_notes.md
 
       - name: Update update.json on main
         run: |
@@ -51,11 +75,3 @@ jobs:
             git commit -m "chore: update update.json for ${{ steps.meta.outputs.version }} [skip ci]"
             git push origin main
           fi
-
-      - name: Create GitHub Release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release create "${{ steps.meta.outputs.version }}" "${{ steps.meta.outputs.zip_name }}" \
-            --title "${{ steps.meta.outputs.version }} — OnePlus 15 GLO 165Hz Unlock" \
-            --notes-file CHANGELOG.md
