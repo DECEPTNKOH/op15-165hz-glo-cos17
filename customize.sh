@@ -12,7 +12,7 @@ ui_print " OnePlus 15 GLO 165Hz Unlock (ColorOS 17)"
 ui_print " Author: DECEPTNKOH | Version: $VERSION"
 ui_print "========================================="
 
-if [ "$DEVICE" != "OP611FL1" ] \vert{}\vert{} [ "$MODEL" != "CPH2747" ]; then
+if [ "$DEVICE" != "OP611FL1" ] || [ "$MODEL" != "CPH2747" ]; then
   if [ "$FORCE_FLAG" != "1" ]; then
     abort "! Несовместимое устройство: $MODEL ($DEVICE). Ожидается OnePlus 15 GLO (CPH2747 / OP611FL1). Для обхода создайте /data/local/tmp/force_op15_165hz."
   else
@@ -30,7 +30,7 @@ if [ ! -f "$SRC_RR" ]; then
 else
   ui_print "- Конфиги дисплея найдены"
   if [ "$FORCE_FLAG" != "1" ]; then
-    if ! grep -q 'extremeHighEnable' "$SRC_RR" \vert{}\vert{} ! grep -q 'rateId="7"' "$SRC_RR"; then
+    if ! grep -q 'extremeHighEnable' "$SRC_RR" || ! grep -q 'rateId="7"' "$SRC_RR"; then
       abort "! В $SRC_RR не найдена поддержка 165 Гц (extremeHighEnable / rateId=\"7\")."
     fi
   fi
@@ -48,9 +48,9 @@ fi
 if [ ! -f "$BACKUP" ] && [ "$BOOTMODE" = "true" ] && [ ! -d "/data/adb/modules/op15_165hz_glo" ]; then
   read_orig() {
     _v=$(settings get "$1" "$2" 2>/dev/null | tr -d '\r')
-    if [ -z "$_v" ] \vert{}\vert{} [ "$_v" = "null" ]; then
+    if [ -z "$_v" ] || [ "$_v" = "null" ]; then
       echo "__UNSET__"
-    elif echo "$_v" \vert{} grep -Eq '^[0-9]+(\.[0-9]+)?$'; then
+    elif echo "$_v" | grep -Eq '^[0-9]+(\.[0-9]+)?$'; then
       echo "$_v"
     else
       echo "$3"

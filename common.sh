@@ -15,7 +15,7 @@ log() {
 }
 
 is_valid_num() {
-  echo "$1" \vert{} grep -Eq '^[0-9]+(\.[0-9]+)?$'
+  echo "$1" | grep -Eq '^[0-9]+(\.[0-9]+)?$'
 }
 
 is_mounted() {
@@ -28,7 +28,8 @@ apply_165_flags() {
   settings put system peak_refresh_rate 165.0 >/dev/null 2>&1
 
   _c=$(settings get secure choice_mode_rate 2>/dev/null | tr -d '\r')
-  _e=$(settings get global app_extreme_high_refresh_switch 2>/dev/null \vert{} tr -d '\r') _p=$(settings get system peak_refresh_rate 2>/dev/null | tr -d '\r')
+  _e=$(settings get global app_extreme_high_refresh_switch 2>/dev/null | tr -d '\r')
+  _p=$(settings get system peak_refresh_rate 2>/dev/null | tr -d '\r')
 
   [ "$_c" = "165" ] || return 1
   [ "$_e" = "1" ] || return 1
