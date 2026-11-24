@@ -19,8 +19,8 @@ jobs:
 
       - name: Lint shell scripts
         run: |
-          sh -n customize.sh post-fs-data.sh service.sh uninstall.sh action.sh
-          shellcheck post-fs-data.sh service.sh uninstall.sh action.sh
+          sh -n common.sh customize.sh post-fs-data.sh service.sh uninstall.sh action.sh
+          shellcheck -x -P . common.sh post-fs-data.sh service.sh uninstall.sh action.sh
           shellcheck -s sh -e SC2154,SC2034 customize.sh
 
       - name: Test XML patcher logic

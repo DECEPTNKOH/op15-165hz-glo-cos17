@@ -1,15 +1,40 @@
 #!/system/bin/sh
 MODDIR=${0%/*}
-LOG="$MODDIR/module.log"
-STATE_DIR="/data/adb/op15_165hz_glo"
-VERSION=$(grep '^version=' "$MODDIR/module.prop" 2>/dev/null | cut -d'=' -f2 | tr -d '\r')
+# shellcheck source=common.sh
+. "$MODDIR/common.sh"
 
-echo "- Применение системных флагов 165 Гц..."
-settings put secure choice_mode_rate 165
-settings put global app_extreme_high_refresh_switch 1
-settings put system peak_refresh_rate 165.0
+echo "=== OP15 165Hz Status (${VERSION:-unknown}) ==="
 
-mkdir -p "$STATE_DIR"
-echo "${VERSION:-unknown}" > "$STATE_DIR/applied_version"
-echo "[OP15-165Hz] $(date '+%H:%M:%S') Reapplied 165Hz settings via action.sh" >> "$LOG"
-echo "- Готово: choice_mode_rate=165, app_extreme_high_refresh_switch=1, peak_refresh_rate=165.0"
+if [ -f "$BOOT_COUNT_FILE" ]; then
+  _bc=$(tr -d '\r\n' < "$BOOT_COUNT_FILE" 2>/dev/null)
+  if [ "${_bc:-0}" -ge 2 ] 2>/dev/null; then
+    echo "! Активна защита от bootloop (boot_count=$_bc)."
+    echo "! Удалите $BOOT_COUNT_FILE вручную только если уверены в совместимости."
+  fi
+fi
+
+MOUNT_OK=1
+if is_mounted "$SRC_RR" && is_mounted "$SRC_DF"; then
+  echo "- XML bind-mounts: OK"
+else
+  echo "! Внимание: XML-патчи НЕ смонтированы (проверьте $LOG)"
+  MOUNT_OK=0
+fi
+
+echo "- Применение и проверка системных флагов 165 Гц..."
+if apply_165_flags; then
+  mkdir -p "$STATE_DIR"
+  echo "${VERSION:-unknown}" > "$APPLIED_FILE"
+  log "Reapplied and verified 165Hz settings via action.sh (mount_ok=$MOUNT_OK)"
+  echo "- Флаги подтверждены: 165 / 1 / 165.0"
+else
+  log "ERROR: Failed to apply/verify 165Hz settings via action.sh"
+  echo "! Ошибка: не удалось подтвердить запись системных флагов"
+  exit 1
+fi
+
+STATUS=$(dumpsys oplusscreenmode 2>/dev/null | grep -E 'mDefaultMaxRate=|isExtremeHighSettingOn=' | head -n 2)
+if [ -n "$STATUS" ]; then
+  echo "- oplusscreenmode:"
+  echo "$STATUS"
+fi

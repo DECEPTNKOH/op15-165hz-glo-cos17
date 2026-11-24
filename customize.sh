@@ -12,7 +12,7 @@ ui_print " OnePlus 15 GLO 165Hz Unlock (ColorOS 17)"
 ui_print " Author: DECEPTNKOH | Version: $VERSION"
 ui_print "========================================="
 
-if [ "$DEVICE" != "OP611FL1" ] || [ "$MODEL" != "CPH2747" ]; then
+if [ "$DEVICE" != "OP611FL1" ] \vert{}\vert{} [ "$MODEL" != "CPH2747" ]; then
   if [ "$FORCE_FLAG" != "1" ]; then
     abort "! Несовместимое устройство: $MODEL ($DEVICE). Ожидается OnePlus 15 GLO (CPH2747 / OP611FL1). Для обхода создайте /data/local/tmp/force_op15_165hz."
   else
@@ -30,7 +30,7 @@ if [ ! -f "$SRC_RR" ]; then
 else
   ui_print "- Конфиги дисплея найдены"
   if [ "$FORCE_FLAG" != "1" ]; then
-    if ! grep -q 'extremeHighEnable' "$SRC_RR" || ! grep -q 'rateId="7"' "$SRC_RR"; then
+    if ! grep -q 'extremeHighEnable' "$SRC_RR" \vert{}\vert{} ! grep -q 'rateId="7"' "$SRC_RR"; then
       abort "! В $SRC_RR не найдена поддержка 165 Гц (extremeHighEnable / rateId=\"7\")."
     fi
   fi
@@ -39,22 +39,27 @@ fi
 STATE_DIR="/data/adb/op15_165hz_glo"
 BACKUP="$STATE_DIR/orig_settings.env"
 mkdir -p "$STATE_DIR"
+rm -f "$STATE_DIR/boot_count"
 
 if [ ! -f "$BACKUP" ] && [ -f "/data/adb/modules/op15_165hz_glo/orig_settings.env" ]; then
   cp -f "/data/adb/modules/op15_165hz_glo/orig_settings.env" "$BACKUP"
 fi
 
 if [ ! -f "$BACKUP" ] && [ "$BOOTMODE" = "true" ] && [ ! -d "/data/adb/modules/op15_165hz_glo" ]; then
-  ORIG_CHOICE=$(settings get secure choice_mode_rate 2>/dev/null | tr -d '\r')
-  ORIG_EXTREME=$(settings get global app_extreme_high_refresh_switch 2>/dev/null | tr -d '\r')
-  ORIG_PEAK=$(settings get system peak_refresh_rate 2>/dev/null | tr -d '\r')
-  echo "$ORIG_CHOICE" | grep -Eq '^[0-9]+(\.[0-9]+)?$' || ORIG_CHOICE="120"
-  echo "$ORIG_EXTREME" | grep -Eq '^[0-9]+$' || ORIG_EXTREME="0"
-  echo "$ORIG_PEAK" | grep -Eq '^[0-9]+(\.[0-9]+)?$' || ORIG_PEAK="120.0"
+  read_orig() {
+    _v=$(settings get "$1" "$2" 2>/dev/null | tr -d '\r')
+    if [ -z "$_v" ] \vert{}\vert{} [ "$_v" = "null" ]; then
+      echo "__UNSET__"
+    elif echo "$_v" \vert{} grep -Eq '^[0-9]+(\.[0-9]+)?$'; then
+      echo "$_v"
+    else
+      echo "$3"
+    fi
+  }
   {
-    echo "ORIG_CHOICE=$ORIG_CHOICE"
-    echo "ORIG_EXTREME=$ORIG_EXTREME"
-    echo "ORIG_PEAK=$ORIG_PEAK"
+    echo "ORIG_CHOICE=$(read_orig secure choice_mode_rate 120)"
+    echo "ORIG_EXTREME=$(read_orig global app_extreme_high_refresh_switch 0)"
+    echo "ORIG_PEAK=$(read_orig system peak_refresh_rate 120.0)"
   } > "$BACKUP"
   chmod 0600 "$BACKUP"
 fi

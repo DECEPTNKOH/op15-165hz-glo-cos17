@@ -1,17 +1,13 @@
 #!/system/bin/sh
 MODDIR=${0%/*}
-LOG="$MODDIR/module.log"
-PATCH_DIR="$MODDIR/patched"
-VERSION=$(grep '^version=' "$MODDIR/module.prop" 2>/dev/null | cut -d'=' -f2 | tr -d '\r')
+# shellcheck source=common.sh
+. "$MODDIR/common.sh"
 
+PATCH_DIR="$MODDIR/patched"
 TARGET_RATE_ID="7-1-2-7"
 TARGET_MAX_RATE="165"
 TARGET_MAX_SETTINGS="7"
 EXTREME_RATE_ID="7"
-
-log() {
-  echo "[OP15-165Hz] $(date '+%H:%M:%S') $1" >> "$LOG"
-}
 
 prepare_metadata() {
   _src="$1"
@@ -32,7 +28,7 @@ prepare_metadata() {
 bind_and_verify() {
   _src="$1"
   _dst="$2"
-  if mount --bind "$_dst" "$_src" && grep -q " $_src " /proc/mounts; then
+  if mount --bind "$_dst" "$_src" && is_mounted "$_src"; then
     log "Mounted and verified $_src"
     return 0
   else
@@ -56,14 +52,26 @@ insert_extreme_pkg() {
 }
 
 [ -f "$LOG" ] && mv -f "$LOG" "${LOG}.old"
-mkdir -p "$PATCH_DIR"
+mkdir -p "$PATCH_DIR" "$STATE_DIR"
 log "Start post-fs-data ${VERSION:-unknown}"
 
-SRC_RR="/my_product/etc/refresh_rate_config.xml"
-DST_RR="$PATCH_DIR/refresh_rate_config.xml"
-SRC_DF="/my_product/etc/sys_dynamic_frame_config.xml"
-DST_DF="$PATCH_DIR/sys_dynamic_frame_config.xml"
+# Защита от bootloop: после 2 незавершённых загрузок подряд патчи не монтируются
+BOOT_COUNT=0
+if [ -f "$BOOT_COUNT_FILE" ]; then
+  _bc=$(tr -d '\r\n' < "$BOOT_COUNT_FILE" 2>/dev/null)
+  case "$_bc" in
+    ''|*[!0-9]*) BOOT_COUNT=0 ;;
+    *) BOOT_COUNT="$_bc" ;;
+  esac
+fi
 
+if [ "$BOOT_COUNT" -ge 2 ]; then
+  log "ERROR: Bootloop protection triggered (boot_count=$BOOT_COUNT), skipping XML mount"
+  exit 0
+fi
+
+DST_RR="$PATCH_DIR/refresh_rate_config.xml"
+DST_DF="$PATCH_DIR/sys_dynamic_frame_config.xml"
 RR_READY=0
 DF_READY=0
 
@@ -126,11 +134,16 @@ else
 fi
 
 if [ "$RR_READY" = "1" ] && [ "$DF_READY" = "1" ]; then
+  echo $((BOOT_COUNT + 1)) > "$BOOT_COUNT_FILE"
+  sync
   if bind_and_verify "$SRC_RR" "$DST_RR"; then
     if ! bind_and_verify "$SRC_DF" "$DST_DF"; then
       umount "$SRC_RR" 2>/dev/null
+      echo "$BOOT_COUNT" > "$BOOT_COUNT_FILE"
       log "ERROR: Atomic rollback executed for $SRC_RR"
     fi
+  else
+    echo "$BOOT_COUNT" > "$BOOT_COUNT_FILE"
   fi
 else
   log "ERROR: Atomic mount aborted (RR_READY=$RR_READY, DF_READY=$DF_READY)"

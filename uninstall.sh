@@ -13,10 +13,23 @@ read_backup() {
   if [ -f "$BACKUP" ]; then
     _val=$(grep "^${_key}=" "$BACKUP" 2>/dev/null | head -n 1 | cut -d'=' -f2 | tr -d '\r')
   fi
-  if is_valid_num "$_val"; then
+  if [ "$_val" = "__UNSET__" ]; then
+    echo "__UNSET__"
+  elif is_valid_num "$_val"; then
     echo "$_val"
   else
     echo "$_def"
+  fi
+}
+
+restore_setting() {
+  _ns="$1"
+  _key="$2"
+  _val="$3"
+  if [ "$_val" = "__UNSET__" ]; then
+    settings delete "$_ns" "$_key" >/dev/null 2>&1
+  else
+    settings put "$_ns" "$_key" "$_val" >/dev/null 2>&1
   fi
 }
 
@@ -29,8 +42,8 @@ ORIG_PEAK=$(read_backup "ORIG_PEAK" "120.0")
     sleep 2
   done
   sleep 3
-  settings put secure choice_mode_rate "$ORIG_CHOICE"
-  settings put global app_extreme_high_refresh_switch "$ORIG_EXTREME"
-  settings put system peak_refresh_rate "$ORIG_PEAK"
+  restore_setting secure choice_mode_rate "$ORIG_CHOICE"
+  restore_setting global app_extreme_high_refresh_switch "$ORIG_EXTREME"
+  restore_setting system peak_refresh_rate "$ORIG_PEAK"
   rm -rf "$STATE_DIR"
 ) &

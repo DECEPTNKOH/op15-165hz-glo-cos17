@@ -1,21 +1,27 @@
 #!/system/bin/sh
 MODDIR=${0%/*}
-LOG="$MODDIR/module.log"
-STATE_DIR="/data/adb/op15_165hz_glo"
-BACKUP="$STATE_DIR/orig_settings.env"
-APPLIED_FILE="$STATE_DIR/applied_version"
-VERSION=$(grep '^version=' "$MODDIR/module.prop" 2>/dev/null | cut -d'=' -f2 | tr -d '\r')
-
-log() {
-  echo "[OP15-165Hz] $(date '+%H:%M:%S') $1" >> "$LOG"
-}
-
-is_valid_num() {
-  echo "$1" | grep -Eq '^[0-9]+(\.[0-9]+)?$'
-}
+# shellcheck source=common.sh
+. "$MODDIR/common.sh"
 
 clamp_120() {
-  awk -v v="$1" -v def="$2" 'BEGIN { print (v + 0 > 120) ? def : v }'
+  _int="${1%%.*}"
+  if [ "$_int" -gt 120 ] 2>/dev/null; then
+    echo "$2"
+  else
+    echo "$1"
+  fi
+}
+
+normalize_orig() {
+  _val="$1"
+  _def="$2"
+  if [ -z "$_val" ] || [ "$_val" = "null" ]; then
+    echo "__UNSET__"
+  elif is_valid_num "$_val"; then
+    clamp_120 "$_val" "$_def"
+  else
+    echo "$_def"
+  fi
 }
 
 while [ "$(getprop sys.boot_completed)" != "1" ]; do
@@ -25,19 +31,29 @@ sleep 5
 
 mkdir -p "$STATE_DIR"
 
-# Сохраняем исходные настройки один раз (с защитой от значения >120 после v1.5.0)
+# Если сработала защита от bootloop, не сбрасываем счётчик и не трогаем настройки
+if [ -f "$BOOT_COUNT_FILE" ]; then
+  _bc=$(tr -d '\r\n' < "$BOOT_COUNT_FILE" 2>/dev/null)
+  if [ "${_bc:-0}" -ge 2 ] 2>/dev/null; then
+    log "WARN: Bootloop protection active (boot_count=$_bc), skipping settings apply"
+    exit 0
+  fi
+  rm -f "$BOOT_COUNT_FILE"
+fi
+
+# Фолбэк-бэкап (на случай установки из recovery или апгрейда с v1.5.0)
 if [ ! -f "$BACKUP" ]; then
   ORIG_CHOICE=$(settings get secure choice_mode_rate 2>/dev/null | tr -d '\r')
   ORIG_EXTREME=$(settings get global app_extreme_high_refresh_switch 2>/dev/null | tr -d '\r')
   ORIG_PEAK=$(settings get system peak_refresh_rate 2>/dev/null | tr -d '\r')
 
-  is_valid_num "$ORIG_CHOICE" || ORIG_CHOICE="120"
-  is_valid_num "$ORIG_EXTREME" || ORIG_EXTREME="0"
-  is_valid_num "$ORIG_PEAK" || ORIG_PEAK="120.0"
-
-  ORIG_CHOICE=$(clamp_120 "$ORIG_CHOICE" "120")
-  [ "$ORIG_EXTREME" = "1" ] && ORIG_EXTREME="0"
-  ORIG_PEAK=$(clamp_120 "$ORIG_PEAK" "120.0")
+  ORIG_CHOICE=$(normalize_orig "$ORIG_CHOICE" "120")
+  if [ -z "$ORIG_EXTREME" ] || [ "$ORIG_EXTREME" = "null" ]; then
+    ORIG_EXTREME="__UNSET__"
+  elif ! is_valid_num "$ORIG_EXTREME" || [ "$ORIG_EXTREME" = "1" ]; then
+    ORIG_EXTREME="0"
+  fi
+  ORIG_PEAK=$(normalize_orig "$ORIG_PEAK" "120.0")
 
   {
     echo "ORIG_CHOICE=$ORIG_CHOICE"
@@ -45,18 +61,24 @@ if [ ! -f "$BACKUP" ]; then
     echo "ORIG_PEAK=$ORIG_PEAK"
   } > "$BACKUP"
   chmod 0600 "$BACKUP"
-  log "Saved original settings to $BACKUP"
+  log "Saved fallback original settings to $BACKUP"
 fi
 
 LAST_APPLIED=""
 [ -f "$APPLIED_FILE" ] && LAST_APPLIED=$(tr -d '\r' < "$APPLIED_FILE" 2>/dev/null)
 
 if [ "$LAST_APPLIED" != "${VERSION:-unknown}" ]; then
-  settings put secure choice_mode_rate 165
-  settings put global app_extreme_high_refresh_switch 1
-  settings put system peak_refresh_rate 165.0
+  TRIES=0
+  until apply_165_flags; do
+    TRIES=$((TRIES + 1))
+    if [ "$TRIES" -ge 5 ]; then
+      log "ERROR: Failed to apply/verify 165Hz settings after $TRIES attempts"
+      exit 1
+    fi
+    sleep 3
+  done
   echo "${VERSION:-unknown}" > "$APPLIED_FILE"
-  log "Applied 165Hz settings in service.sh (${VERSION:-unknown})"
+  log "Applied and verified 165Hz settings in service.sh (${VERSION:-unknown})"
 else
   log "Settings already applied for ${VERSION:-unknown}, skipping override"
 fi
