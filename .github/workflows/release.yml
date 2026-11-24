@@ -19,9 +19,40 @@ jobs:
 
       - name: Lint shell scripts
         run: |
-          sh -n customize.sh post-fs-data.sh service.sh uninstall.sh
-          shellcheck post-fs-data.sh service.sh uninstall.sh
+          sh -n customize.sh post-fs-data.sh service.sh uninstall.sh action.sh
+          shellcheck post-fs-data.sh service.sh uninstall.sh action.sh
           shellcheck -s sh -e SC2154,SC2034 customize.sh
+
+      - name: Test XML patcher logic
+        run: |
+          mkdir -p /tmp/xmltest
+          cat << 'XML' > /tmp/xmltest/rr.xml
+          <?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+          <refresh_rate_config version="20260922">
+            <extremeHighRate package="com.whatsapp" rateId="7" />
+            <config defaultRateId="1-1-2-3" disableViewOverrideDefault="false" enableAppSwitchBoost="true" maxrefreshsettings="3" extremeHighEnable="true" />
+            <item package="com.example.app" rateId="1-1-2-3" />
+            <item package="com.example.camera" rateId="1-1-2-1" />
+          </refresh_rate_config>
+          XML
+          cat << 'XML' > /tmp/xmltest/df.xml
+          <?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+          <dynamic_frame>
+            <item type="20201" enable="true" targetFramerate="120" />
+          </dynamic_frame>
+          XML
+          sed -i \
+            -e '/^[[:space:]]*<config / s/defaultRateId="[0-9]-[0-9]-[0-9]-[0-9]"/defaultRateId="7-1-2-7"/' \
+            -e '/^[[:space:]]*<config / s/enableAppSwitchBoost="true"/enableAppSwitchBoost="false"/' \
+            -e '/^[[:space:]]*<config / s/maxrefreshsettings="[0-9]"/maxrefreshsettings="7"/' \
+            -e '/^[[:space:]]*<config / s/disableViewOverrideDefault="false"/disableViewOverrideDefault="true"/' \
+            -e '/[Cc]amera/! s/rateId="[0-9]-[0-9]-[0-9]-[0-9]"/rateId="7-1-2-7"/g' \
+            -e '/^[[:space:]]*<config / s/<config /<config defaultMaxRate="165" /' \
+            /tmp/xmltest/rr.xml
+          sed -i -e 's/targetFramerate="120"/targetFramerate="165"/g' /tmp/xmltest/df.xml
+          xmllint --noout /tmp/xmltest/rr.xml /tmp/xmltest/df.xml
+          grep -q 'package="com.example.camera" rateId="1-1-2-1"' /tmp/xmltest/rr.xml
+          ! grep -q 'targetFramerate="120"' /tmp/xmltest/df.xml
 
       - name: Read and validate module metadata
         id: meta
@@ -55,7 +86,7 @@ jobs:
         run: |
           ZIP="${{ steps.meta.outputs.zip_name }}"
           zip -r9 "$ZIP" . \
-            -x ".git/*" ".github/*" "docs/*" ".gitignore" "README.md" "CHANGELOG.md" "update.json" "release_notes.md" "patched/*" "orig_settings.env" "*.log" "*.zip" "*.sha256"
+            -x ".git/*" ".github/*" "docs/*" ".gitignore" "README.md" "CHANGELOG.md" "update.json" "release_notes.md" "patched/*" "orig_settings.env" "*.log" "*.old" "*.zip" "*.sha256"
           sha256sum "$ZIP" > "${ZIP}.sha256"
           printf '\n### SHA-256\n\n    %s\n' "$(cat "${ZIP}.sha256")" >> release_notes.md
 
@@ -69,20 +100,38 @@ jobs:
             --notes-file release_notes.md
 
       - name: Update update.json on main
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          VERSION_CODE: ${{ steps.meta.outputs.version_code }}
+          ZIP_NAME: ${{ steps.meta.outputs.zip_name }}
+          REPO: ${{ github.repository }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git fetch origin main
           git checkout main
-          printf '{\n  "version": "%s",\n  "versionCode": %s,\n  "zipUrl": "[https://github.com/%s/releases/download/%s/%s](https://github.com/%s/releases/download/%s/%s)",\n  "changelog": "[https://raw.githubusercontent.com/%s/main/CHANGELOG.md](https://raw.githubusercontent.com/%s/main/CHANGELOG.md)"\n}\n' \
-            "${{ steps.meta.outputs.version }}" \
-            "${{ steps.meta.outputs.version_code }}" \
-            "${{ github.repository }}" \
-            "${{ steps.meta.outputs.version }}" \
-            "${{ steps.meta.outputs.zip_name }}" \
-            "${{ github.repository }}" > update.json
+          python3 -c '
+          import json, os
+          p = "https:"
+          ver = os.environ["VERSION"]
+          code = int(os.environ["VERSION_CODE"])
+          zip_name = os.environ["ZIP_NAME"]
+          repo = os.environ["REPO"]
+          data = {
+              "version": ver,
+              "versionCode": code,
+              "zipUrl": f"{p}//github.com/{repo}/releases/download/{ver}/{zip_name}",
+              "changelog": f"{p}//raw.githubusercontent.com/{repo}/main/CHANGELOG.md"
+          }
+          assert "[" not in data["zipUrl"] and data["zipUrl"].endswith(".zip")
+          assert "[" not in data["changelog"] and data["changelog"].endswith("CHANGELOG.md")
+          with open("update.json", "w") as f:
+              json.dump(data, f, indent=2)
+              f.write("\n")
+          '
+          python3 -m json.tool update.json >/dev/null
           if ! git diff --quiet update.json; then
             git add update.json
-            git commit -m "chore: update update.json for ${{ steps.meta.outputs.version }} [skip ci]"
+            git commit -m "chore: update update.json for $VERSION [skip ci]"
             git push origin main
           fi
