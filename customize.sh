@@ -1,6 +1,6 @@
 ui_print "========================================="
 ui_print " OnePlus 15 GLO 165Hz Unlock (ColorOS 17)"
-ui_print " Version: v1.5.0"
+ui_print " Author: DECEPTNKOH | Version: v1.5.0"
 ui_print "========================================="
 
 if [ ! -f /my_product/etc/refresh_rate_config.xml ]; then
