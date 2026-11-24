@@ -50,7 +50,7 @@ jobs:
             -e '/^[[:space:]]*<config / s/<config /<config defaultMaxRate="165" /' \
             /tmp/xmltest/rr.xml
           sed -i -e 's/targetFramerate="120"/targetFramerate="165"/g' /tmp/xmltest/df.xml
-          xmllint --noout /tmp/xmltest/rr.xml /tmp/xmltest/df.xml
+          python3 -c 'import xml.etree.ElementTree as ET; ET.parse("/tmp/xmltest/rr.xml"); ET.parse("/tmp/xmltest/df.xml")'
           grep -q 'package="com.example.camera" rateId="1-1-2-1"' /tmp/xmltest/rr.xml
           ! grep -q 'targetFramerate="120"' /tmp/xmltest/df.xml
 
