@@ -11,10 +11,11 @@ log() {
 }
 
 is_valid_num() {
-  case "$1" in
-    ''|.|*[!0-9.]*) return 1 ;;
-    *) return 0 ;;
-  esac
+  echo "$1" | grep -Eq '^[0-9]+(\.[0-9]+)?$'
+}
+
+clamp_120() {
+  awk -v v="$1" -v def="$2" 'BEGIN { print (v + 0 > 120) ? def : v }'
 }
 
 while [ "$(getprop sys.boot_completed)" != "1" ]; do
@@ -24,7 +25,7 @@ sleep 5
 
 mkdir -p "$STATE_DIR"
 
-# Сохраняем исходные настройки один раз вне папки модуля
+# Сохраняем исходные настройки один раз (с защитой от значения >120 после v1.5.0)
 if [ ! -f "$BACKUP" ]; then
   ORIG_CHOICE=$(settings get secure choice_mode_rate 2>/dev/null | tr -d '\r')
   ORIG_EXTREME=$(settings get global app_extreme_high_refresh_switch 2>/dev/null | tr -d '\r')
@@ -33,6 +34,10 @@ if [ ! -f "$BACKUP" ]; then
   is_valid_num "$ORIG_CHOICE" || ORIG_CHOICE="120"
   is_valid_num "$ORIG_EXTREME" || ORIG_EXTREME="0"
   is_valid_num "$ORIG_PEAK" || ORIG_PEAK="120.0"
+
+  ORIG_CHOICE=$(clamp_120 "$ORIG_CHOICE" "120")
+  [ "$ORIG_EXTREME" = "1" ] && ORIG_EXTREME="0"
+  ORIG_PEAK=$(clamp_120 "$ORIG_PEAK" "120.0")
 
   {
     echo "ORIG_CHOICE=$ORIG_CHOICE"
@@ -43,7 +48,6 @@ if [ ! -f "$BACKUP" ]; then
   log "Saved original settings to $BACKUP"
 fi
 
-# Идемпотентность: применяем флаги 165 Гц один раз при установке/обновлении версии
 LAST_APPLIED=""
 [ -f "$APPLIED_FILE" ] && LAST_APPLIED=$(tr -d '\r' < "$APPLIED_FILE" 2>/dev/null)
 

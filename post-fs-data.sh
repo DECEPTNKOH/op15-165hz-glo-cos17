@@ -42,7 +42,7 @@ insert_extreme_pkg() {
   _pkg="$2"
   if ! grep -q "extremeHighRate.*package=\"${_pkg}\"" "$_file"; then
     awk -v pkg="$_pkg" -v rid="$EXTREME_RATE_ID" '
-      !done && /^[[:space:]]*<config / {
+      !done && /^[ \t]*<config / {
         print "  <extremeHighRate package=\"" pkg "\" rateId=\"" rid "\" />"
         done=1
       }
@@ -51,7 +51,7 @@ insert_extreme_pkg() {
   fi
 }
 
-rm -f "$LOG"
+[ -f "$LOG" ] && mv -f "$LOG" "${LOG}.old"
 mkdir -p "$PATCH_DIR"
 log "Start post-fs-data ${VERSION:-unknown}"
 
@@ -72,23 +72,23 @@ if [ -f "$SRC_RR" ]; then
       -e "/[Cc]amera/! s/rateId=\"[0-9]-[0-9]-[0-9]-[0-9]\"/rateId=\"$TARGET_RATE_ID\"/g" \
       "$DST_RR"
 
-    # Безопасная установка defaultMaxRate без дублирования атрибута
     if grep -q '^[[:space:]]*<config .*defaultMaxRate=' "$DST_RR"; then
       sed -i -e "/^[[:space:]]*<config / s/defaultMaxRate=\"[^\"]*\"/defaultMaxRate=\"$TARGET_MAX_RATE\"/" "$DST_RR"
     else
       sed -i -e "/^[[:space:]]*<config / s/<config /<config defaultMaxRate=\"$TARGET_MAX_RATE\" /" "$DST_RR"
     fi
 
-    # Портативная вставка тегов extremeHighRate через awk
     insert_extreme_pkg "$DST_RR" "com.android.launcher"
     insert_extreme_pkg "$DST_RR" "com.android.systemui"
 
-    # Валидация структуры и результата патча
-    DUP_MAX=$(awk '/^[[:space:]]*<config / { c += gsub(/defaultMaxRate=/, "&") } END { print c + 0 }' "$DST_RR")
+    DUP_MAX=$(awk '/^[ \t]*<config / { c += gsub(/defaultMaxRate=/, "&") } END { print c + 0 }' "$DST_RR")
     if grep -q '<refresh_rate_config' "$DST_RR" \
       && grep -q '</refresh_rate_config>' "$DST_RR" \
       && grep -q "defaultRateId=\"$TARGET_RATE_ID\"" "$DST_RR" \
       && grep -q "defaultMaxRate=\"$TARGET_MAX_RATE\"" "$DST_RR" \
+      && grep -q "maxrefreshsettings=\"$TARGET_MAX_SETTINGS\"" "$DST_RR" \
+      && grep -q 'enableAppSwitchBoost="false"' "$DST_RR" \
+      && grep -q 'disableViewOverrideDefault="true"' "$DST_RR" \
       && [ "$DUP_MAX" = "1" ]; then
       bind_file "$SRC_RR" "$DST_RR"
     else

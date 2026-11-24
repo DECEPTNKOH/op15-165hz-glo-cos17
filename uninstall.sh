@@ -3,10 +3,7 @@ STATE_DIR="/data/adb/op15_165hz_glo"
 BACKUP="$STATE_DIR/orig_settings.env"
 
 is_valid_num() {
-  case "$1" in
-    ''|.|*[!0-9.]*) return 1 ;;
-    *) return 0 ;;
-  esac
+  echo "$1" | grep -Eq '^[0-9]+(\.[0-9]+)?$'
 }
 
 read_backup() {
