@@ -41,12 +41,14 @@ jobs:
       - name: Extract release notes for current version
         run: |
           awk -v ver="## ${{ steps.meta.outputs.version }}" '
+            { sub(/\r$/, "") }
             $0 == ver { flag=1; next }
             /^## / && flag { exit }
             flag { print }
           ' CHANGELOG.md > release_notes.md
-          if [ ! -s release_notes.md ]; then
-            echo "Release ${{ steps.meta.outputs.version }}" > release_notes.md
+          if ! grep -q "[^[:space:]]" release_notes.md; then
+            echo "ERROR: Section ## ${{ steps.meta.outputs.version }} not found or empty in CHANGELOG.md"
+            exit 1
           fi
 
       - name: Build module ZIP and SHA-256
