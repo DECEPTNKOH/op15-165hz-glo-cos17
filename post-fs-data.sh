@@ -15,24 +15,39 @@ log() {
 }
 
 bind_file() {
-  SRC="$1"
-  DST="$2"
-  if [ -s "$DST" ]; then
-    chmod 0644 "$DST"
-    chown 0:0 "$DST"
-    SECTX=$(ls -Z "$SRC" 2>/dev/null | awk '{print $1}')
-    case "$SECTX" in
+  _src="$1"
+  _dst="$2"
+  if [ -s "$_dst" ]; then
+    chmod 0644 "$_dst"
+    chown 0:0 "$_dst"
+    # shellcheck disable=SC2012
+    _sectx=$(ls -Z "$_src" 2>/dev/null | awk '{print $1}')
+    case "$_sectx" in
       u:object_r:*) ;;
-      *) SECTX="u:object_r:system_file:s0" ;;
+      *) _sectx="u:object_r:system_file:s0" ;;
     esac
-    chcon "$SECTX" "$DST"
-    if mount --bind "$DST" "$SRC"; then
-      log "Mounted $SRC (SELinux: $SECTX)"
+    chcon "$_sectx" "$_dst"
+    if mount --bind "$_dst" "$_src"; then
+      log "Mounted $_src (SELinux: $_sectx)"
     else
-      log "ERROR: mount --bind failed for $SRC"
+      log "ERROR: mount --bind failed for $_src"
     fi
   else
-    log "ERROR: Empty patched file for $SRC, skipped"
+    log "ERROR: Empty patched file for $_src, skipped"
+  fi
+}
+
+insert_extreme_pkg() {
+  _file="$1"
+  _pkg="$2"
+  if ! grep -q "extremeHighRate.*package=\"${_pkg}\"" "$_file"; then
+    awk -v pkg="$_pkg" -v rid="$EXTREME_RATE_ID" '
+      !done && /^[[:space:]]*<config / {
+        print "  <extremeHighRate package=\"" pkg "\" rateId=\"" rid "\" />"
+        done=1
+      }
+      { print }
+    ' "$_file" > "${_file}.tmp" && mv -f "${_file}.tmp" "$_file"
   fi
 }
 
@@ -44,36 +59,41 @@ log "Start post-fs-data ${VERSION:-unknown}"
 SRC_RR="/my_product/etc/refresh_rate_config.xml"
 DST_RR="$PATCH_DIR/refresh_rate_config.xml"
 if [ -f "$SRC_RR" ]; then
-  cp -f "$SRC_RR" "$DST_RR"
-
-  sed -i \
-    -e "/^[[:space:]]*<config / s/defaultRateId=\"[0-9]-[0-9]-[0-9]-[0-9]\"/defaultRateId=\"$TARGET_RATE_ID\"/" \
-    -e "/^[[:space:]]*<config / s/enableAppSwitchBoost=\"true\"/enableAppSwitchBoost=\"false\"/" \
-    -e "/^[[:space:]]*<config / s/maxrefreshsettings=\"[0-9]\"/maxrefreshsettings=\"$TARGET_MAX_SETTINGS\"/" \
-    -e "/^[[:space:]]*<config / s/disableViewOverrideDefault=\"false\"/disableViewOverrideDefault=\"true\"/" \
-    -e "/[Cc]amera/! s/rateId=\"[0-9]-[0-9]-[0-9]-[0-9]\"/rateId=\"$TARGET_RATE_ID\"/g" \
-    "$DST_RR"
-
-  # Безопасная установка defaultMaxRate без дублирования атрибута
-  if grep -q 'defaultMaxRate=' "$DST_RR"; then
-    sed -i -e "/^[[:space:]]*<config / s/defaultMaxRate=\"[^\"]*\"/defaultMaxRate=\"$TARGET_MAX_RATE\"/" "$DST_RR"
+  if ! grep -q '<refresh_rate_config' "$SRC_RR" || ! grep -q '^[[:space:]]*<config ' "$SRC_RR"; then
+    log "ERROR: Unexpected XML structure in $SRC_RR, patch skipped"
   else
-    sed -i -e "/^[[:space:]]*<config / s/<config /<config defaultMaxRate=\"$TARGET_MAX_RATE\" /" "$DST_RR"
-  fi
+    cp -f "$SRC_RR" "$DST_RR"
 
-  # Добавляем launcher и systemui в extremeHighRate только если их ещё нет
-  if ! grep -q 'extremeHighRate.*com\.android\.launcher' "$DST_RR"; then
-    sed -i -e "0,/^[[:space:]]*<config / s|<config |<extremeHighRate package=\"com.android.launcher\" rateId=\"$EXTREME_RATE_ID\" /> <config |" "$DST_RR"
-  fi
-  if ! grep -q 'extremeHighRate.*com\.android\.systemui' "$DST_RR"; then
-    sed -i -e "0,/^[[:space:]]*<config / s|<config |<extremeHighRate package=\"com.android.systemui\" rateId=\"$EXTREME_RATE_ID\" /> <config |" "$DST_RR"
-  fi
+    sed -i \
+      -e "/^[[:space:]]*<config / s/defaultRateId=\"[0-9]-[0-9]-[0-9]-[0-9]\"/defaultRateId=\"$TARGET_RATE_ID\"/" \
+      -e "/^[[:space:]]*<config / s/enableAppSwitchBoost=\"true\"/enableAppSwitchBoost=\"false\"/" \
+      -e "/^[[:space:]]*<config / s/maxrefreshsettings=\"[0-9]\"/maxrefreshsettings=\"$TARGET_MAX_SETTINGS\"/" \
+      -e "/^[[:space:]]*<config / s/disableViewOverrideDefault=\"false\"/disableViewOverrideDefault=\"true\"/" \
+      -e "/[Cc]amera/! s/rateId=\"[0-9]-[0-9]-[0-9]-[0-9]\"/rateId=\"$TARGET_RATE_ID\"/g" \
+      "$DST_RR"
 
-  # Валидация результата патча
-  if grep -q "defaultRateId=\"$TARGET_RATE_ID\"" "$DST_RR" && grep -q "defaultMaxRate=\"$TARGET_MAX_RATE\"" "$DST_RR"; then
-    bind_file "$SRC_RR" "$DST_RR"
-  else
-    log "ERROR: Validation failed for $SRC_RR (format changed after OTA?), mount skipped"
+    # Безопасная установка defaultMaxRate без дублирования атрибута
+    if grep -q '^[[:space:]]*<config .*defaultMaxRate=' "$DST_RR"; then
+      sed -i -e "/^[[:space:]]*<config / s/defaultMaxRate=\"[^\"]*\"/defaultMaxRate=\"$TARGET_MAX_RATE\"/" "$DST_RR"
+    else
+      sed -i -e "/^[[:space:]]*<config / s/<config /<config defaultMaxRate=\"$TARGET_MAX_RATE\" /" "$DST_RR"
+    fi
+
+    # Портативная вставка тегов extremeHighRate через awk
+    insert_extreme_pkg "$DST_RR" "com.android.launcher"
+    insert_extreme_pkg "$DST_RR" "com.android.systemui"
+
+    # Валидация структуры и результата патча
+    DUP_MAX=$(awk '/^[[:space:]]*<config / { c += gsub(/defaultMaxRate=/, "&") } END { print c + 0 }' "$DST_RR")
+    if grep -q '<refresh_rate_config' "$DST_RR" \
+      && grep -q '</refresh_rate_config>' "$DST_RR" \
+      && grep -q "defaultRateId=\"$TARGET_RATE_ID\"" "$DST_RR" \
+      && grep -q "defaultMaxRate=\"$TARGET_MAX_RATE\"" "$DST_RR" \
+      && [ "$DUP_MAX" = "1" ]; then
+      bind_file "$SRC_RR" "$DST_RR"
+    else
+      log "ERROR: Validation failed for $SRC_RR (dup_max=$DUP_MAX), mount skipped"
+    fi
   fi
 else
   log "ERROR: $SRC_RR not found"
