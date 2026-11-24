@@ -22,5 +22,10 @@ Root-модуль (KernelSU / Magisk / APatch) для динамической �
 
       su -c "settings put secure choice_mode_rate 120; settings put global app_extreme_high_refresh_switch 0; settings put system peak_refresh_rate 120.0; rm -rf /data/adb/op15_165hz_glo"
 
+## Известные ограничения
+- **Камера:** видоискатель остаётся в 60 Гц (ограничение HAL/приложения; запись видео 120 FPS работает штатно).
+- **Рабочий стол → «Недавние»:** 1–2 сек 120 Гц из-за `PRIORITY_LAUNCHER_REQUEST` в `OplusLauncher.apk` (из приложений держится 165 Гц).
+- **Игры:** Game Space может отдельно ограничивать FPS.
+
 ## Документация
 Принцип работы, таблица `rateId`, поведение LTPO (33–165 Гц) и известные ограничения описаны в [**docs/ARCHITECTURE.md**](docs/ARCHITECTURE.md).
